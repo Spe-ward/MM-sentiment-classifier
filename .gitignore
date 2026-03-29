@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Data (downloaded via Kaggle API — not tracked)
+data/*.csv
+data/*.zip
+
+# Model artifacts (too large for git)
+models/*.joblib
+models/*.pkl
+models/*.pt
+models/*.safetensors
+models/distilbert/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment / secrets
+.env
+.kaggle/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.tar
+
+# Project planning (internal only)
+PLAN.md
+
+# Claude Code
+.claude/
