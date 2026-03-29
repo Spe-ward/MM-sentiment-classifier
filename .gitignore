@@ -46,3 +46,6 @@ PLAN.md
 
 # Claude Code
 .claude/
+
+# Logs (generated at runtime)
+logs/

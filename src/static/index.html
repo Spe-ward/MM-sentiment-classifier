@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sentiment Classifier — Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <header class="container">
+    <nav>
+      <ul>
+        <li><strong>Sentiment Classifier</strong></li>
+      </ul>
+      <ul>
+        <li><a href="#" class="tab-link active" data-tab="dashboard">Dashboard</a></li>
+        <li><a href="#" class="tab-link" data-tab="docs">Documentation</a></li>
+        <li><a href="/docs" target="_blank">Swagger UI</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container">
+
+    <!-- ===================== DASHBOARD TAB ===================== -->
+    <section id="tab-dashboard">
+
+      <!-- Health + Active Model -->
+      <div class="grid">
+        <article>
+          <header>Service Status</header>
+          <div id="health-status">
+            <span class="status-dot status-loading"></span>
+            <span id="health-text">Checking...</span>
+          </div>
+          <p><small>Model: <strong id="active-model-name">—</strong></small></p>
+          <p><small>Uptime: <span id="uptime">—</span></small></p>
+        </article>
+
+        <article>
+          <header>Active Model Metrics</header>
+          <div class="stats-grid">
+            <div class="stat-item">
+              <div class="stat-value" id="active-accuracy">—</div>
+              <div class="stat-label">Accuracy</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="active-f1">—</div>
+              <div class="stat-label">F1 Score</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="active-roc">—</div>
+              <div class="stat-label">ROC-AUC</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="active-size">—</div>
+              <div class="stat-label">Model Size</div>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <!-- Live Prediction Stats -->
+      <article>
+        <header>Live Prediction Statistics</header>
+        <div class="grid">
+          <div class="stat-item">
+            <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-label">Total Predictions</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="stat-confidence">—</div>
+            <div class="stat-label">Avg Confidence</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="stat-positive">0</div>
+            <div class="stat-label">Positive</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="stat-negative">0</div>
+            <div class="stat-label">Negative</div>
+          </div>
+        </div>
+        <details>
+          <summary>Language Breakdown</summary>
+          <div id="language-breakdown"><em>No predictions yet</em></div>
+        </details>
+      </article>
+
+      <!-- Recent Predictions Log -->
+      <article>
+        <header>Recent Predictions</header>
+        <div class="table-container">
+          <table id="predictions-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Review</th>
+                <th>Lang</th>
+                <th>Sentiment</th>
+                <th>Confidence</th>
+                <th>Latency</th>
+              </tr>
+            </thead>
+            <tbody id="predictions-table-body">
+              <tr><td colspan="6"><em>No predictions yet</em></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <!-- Model Comparison Table -->
+      <article>
+        <header>Model Comparison (Validation Set)</header>
+        <div class="table-container">
+          <table id="model-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Accuracy</th>
+                <th>Precision</th>
+                <th>Recall</th>
+                <th>F1</th>
+                <th>ROC-AUC</th>
+                <th>Train Time (s)</th>
+                <th>Inference (s)</th>
+                <th>Size (MB)</th>
+              </tr>
+            </thead>
+            <tbody id="model-table-body">
+              <tr><td colspan="9">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+    </section>
+
+    <!-- ===================== DOCUMENTATION TAB ===================== -->
+    <section id="tab-docs" hidden>
+      <nav>
+        <ul>
+          <li><a href="#" class="doc-link active" data-doc="readme">Overview</a></li>
+          <li><a href="#" class="doc-link" data-doc="api">API Reference</a></li>
+          <li><a href="#" class="doc-link" data-doc="monitoring">Monitoring</a></li>
+        </ul>
+      </nav>
+      <article id="doc-content">
+        <p>Loading documentation...</p>
+      </article>
+    </section>
+
+  </main>
+
+  <footer class="container">
+    <small>Sentiment Classification for Movie Reviews (EN/JA) — Macromill</small>
+  </footer>
+
+  <script>
+    // --- Tab Navigation ---
+    document.querySelectorAll('.tab-link').forEach(link => {
+      link.addEventListener('click', e => {
+        e.preventDefault();
+        document.querySelectorAll('.tab-link').forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+        const tab = link.dataset.tab;
+        document.getElementById('tab-dashboard').hidden = tab !== 'dashboard';
+        document.getElementById('tab-docs').hidden = tab !== 'docs';
+        if (tab === 'docs' && !docsLoaded.readme) loadDoc('readme');
+      });
+    });
+
+    // --- Doc Sub-Tab Navigation ---
+    const docsLoaded = {};
+    document.querySelectorAll('.doc-link').forEach(link => {
+      link.addEventListener('click', e => {
+        e.preventDefault();
+        document.querySelectorAll('.doc-link').forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+        loadDoc(link.dataset.doc);
+      });
+    });
+
+    async function loadDoc(name) {
+      const el = document.getElementById('doc-content');
+      if (docsLoaded[name]) {
+        el.innerHTML = docsLoaded[name];
+        return;
+      }
+      el.innerHTML = '<p>Loading...</p>';
+      try {
+        const resp = await fetch(`/api/docs/${name}`);
+        if (!resp.ok) throw new Error(resp.statusText);
+        const md = await resp.text();
+        const html = marked.parse(md);
+        docsLoaded[name] = html;
+        el.innerHTML = html;
+      } catch (err) {
+        el.innerHTML = `<p>Error loading document: ${err.message}</p>`;
+      }
+    }
+
+    // --- Dashboard Data ---
+    async function fetchHealth() {
+      try {
+        const resp = await fetch('/health');
+        const data = await resp.json();
+        const dot = document.querySelector('.status-dot');
+        const text = document.getElementById('health-text');
+        if (data.status === 'ok') {
+          dot.className = 'status-dot status-ok';
+          text.textContent = 'Online';
+        } else {
+          dot.className = 'status-dot status-error';
+          text.textContent = 'Degraded';
+        }
+        document.getElementById('active-model-name').textContent = data.model;
+      } catch {
+        document.querySelector('.status-dot').className = 'status-dot status-error';
+        document.getElementById('health-text').textContent = 'Offline';
+      }
+    }
+
+    async function fetchModels() {
+      try {
+        const resp = await fetch('/api/models');
+        const data = await resp.json();
+        const tbody = document.getElementById('model-table-body');
+        tbody.innerHTML = '';
+
+        data.models.forEach(m => {
+          const row = document.createElement('tr');
+          if (m.is_active) row.classList.add('active-row');
+          row.innerHTML = `
+            <td>${m.model}${m.is_active ? ' <mark>active</mark>' : ''}</td>
+            <td>${(m.accuracy * 100).toFixed(2)}%</td>
+            <td>${(m.precision * 100).toFixed(2)}%</td>
+            <td>${(m.recall * 100).toFixed(2)}%</td>
+            <td>${m.f1.toFixed(4)}</td>
+            <td>${m.roc_auc.toFixed(4)}</td>
+            <td>${m.train_time_sec.toFixed(1)}</td>
+            <td>${m.inference_time_sec.toFixed(4)}</td>
+            <td>${m.model_size_mb.toFixed(1)}</td>
+          `;
+          tbody.appendChild(row);
+        });
+
+        // Populate active model card
+        const active = data.models.find(m => m.is_active);
+        if (active) {
+          document.getElementById('active-accuracy').textContent = (active.accuracy * 100).toFixed(2) + '%';
+          document.getElementById('active-f1').textContent = active.f1.toFixed(4);
+          document.getElementById('active-roc').textContent = active.roc_auc.toFixed(4);
+          document.getElementById('active-size').textContent = active.model_size_mb.toFixed(1) + ' MB';
+        }
+      } catch (err) {
+        console.error('Failed to fetch models:', err);
+      }
+    }
+
+    async function fetchStats() {
+      try {
+        const resp = await fetch('/api/stats');
+        const data = await resp.json();
+        document.getElementById('stat-total').textContent = data.total_predictions;
+        document.getElementById('stat-confidence').textContent =
+          data.total_predictions > 0 ? data.avg_confidence.toFixed(4) : '—';
+        document.getElementById('stat-positive').textContent = data.positive_count;
+        document.getElementById('stat-negative').textContent = data.negative_count;
+
+        // Uptime
+        const secs = data.uptime_seconds;
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        const s = Math.floor(secs % 60);
+        document.getElementById('uptime').textContent =
+          `${h}h ${m}m ${s}s`;
+
+        // Language breakdown
+        const langEl = document.getElementById('language-breakdown');
+        const langs = data.language_breakdown;
+        if (Object.keys(langs).length === 0) {
+          langEl.innerHTML = '<em>No predictions yet</em>';
+        } else {
+          langEl.innerHTML = Object.entries(langs)
+            .map(([lang, count]) => `<kbd>${lang}</kbd>: ${count}`)
+            .join(' &nbsp; ');
+        }
+      } catch (err) {
+        console.error('Failed to fetch stats:', err);
+      }
+    }
+
+    // --- Recent Predictions ---
+    async function fetchPredictions() {
+      try {
+        const resp = await fetch('/api/predictions?limit=20');
+        const data = await resp.json();
+        const tbody = document.getElementById('predictions-table-body');
+
+        if (data.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6"><em>No predictions yet</em></td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = '';
+        // Show newest first
+        data.reverse().forEach(p => {
+          const row = document.createElement('tr');
+          const ts = new Date(p.timestamp).toLocaleTimeString();
+          const sentimentClass = p.sentiment === 'positive' ? 'style="color:#2ecc71"' : 'style="color:#e74c3c"';
+          row.innerHTML = `
+            <td><small>${ts}</small></td>
+            <td><small>${p.review.substring(0, 80)}${p.review.length > 80 ? '...' : ''}</small></td>
+            <td><kbd>${p.language_detected}</kbd>${p.translated ? ' *' : ''}</td>
+            <td ${sentimentClass}><strong>${p.sentiment}</strong></td>
+            <td>${p.confidence.toFixed(4)}</td>
+            <td>${p.response_time_ms.toFixed(0)}ms</td>
+          `;
+          tbody.appendChild(row);
+        });
+      } catch (err) {
+        console.error('Failed to fetch predictions:', err);
+      }
+    }
+
+    // --- Init ---
+    fetchHealth();
+    fetchModels();
+    fetchStats();
+    fetchPredictions();
+
+    // Auto-refresh health, stats, and predictions every 10 seconds
+    setInterval(() => {
+      fetchHealth();
+      fetchStats();
+      fetchPredictions();
+    }, 10000);
+  </script>
+</body>
+</html>

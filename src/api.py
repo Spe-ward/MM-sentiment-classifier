@@ -1,12 +1,30 @@
 """FastAPI application for sentiment classification."""
 
+import logging
+import time as time_module
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.predict import SentimentPredictor
 from src.translate import translate_if_needed
+from src.dashboard import router as dashboard_router, tracker, LOG_DIR
+
+# --- Logging setup ---
+LOG_DIR.mkdir(exist_ok=True)
+logging.basicConfig(
+    handlers=[
+        logging.FileHandler(LOG_DIR / "api.log"),
+        logging.StreamHandler(),
+    ],
+    format="%(asctime)s %(levelname)s %(message)s",
+    level=logging.INFO,
+)
+log = logging.getLogger(__name__)
 
 
 # Global predictor instance
@@ -17,8 +35,12 @@ predictor: SentimentPredictor = None
 async def lifespan(app: FastAPI):
     """Load model on startup."""
     global predictor
+    start = time_module.perf_counter()
     predictor = SentimentPredictor()
+    load_time = time_module.perf_counter() - start
+    log.info("Model loaded: %s (%.2fs)", predictor.model_name, load_time)
     yield
+    log.info("Application shutting down")
 
 
 app = FastAPI(
@@ -31,6 +53,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Include dashboard API routes
+app.include_router(dashboard_router)
 
 
 # --- Request / Response schemas ---
@@ -62,6 +87,12 @@ class HealthResponse(BaseModel):
 
 # --- Endpoints ---
 
+@app.get("/", include_in_schema=False)
+async def root():
+    """Redirect root to the dashboard."""
+    return RedirectResponse(url="/static/index.html")
+
+
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 async def health_check():
     """Health check endpoint. Returns the loaded model name."""
@@ -78,8 +109,20 @@ async def predict_sentiment(request: PredictRequest):
     Accepts English or Japanese text. Japanese input is automatically
     detected and translated to English before prediction.
     """
+    start = time_module.perf_counter()
     translated_text, lang = translate_if_needed(request.review)
     result = predictor.predict(translated_text)
+    elapsed_ms = (time_module.perf_counter() - start) * 1000
+
+    tracker.record(
+        sentiment=result["sentiment"],
+        confidence=result["confidence"],
+        language=lang,
+        review=request.review,
+        model=predictor.model_name,
+        response_time_ms=elapsed_ms,
+        translated=(lang != "en"),
+    )
 
     return PredictResponse(
         sentiment=result["sentiment"],
@@ -99,8 +142,20 @@ async def predict_batch(request: BatchPredictRequest):
 
     predictions = []
     for review_text in request.reviews:
+        start = time_module.perf_counter()
         translated_text, lang = translate_if_needed(review_text)
         result = predictor.predict(translated_text)
+        elapsed_ms = (time_module.perf_counter() - start) * 1000
+
+        tracker.record(
+            sentiment=result["sentiment"],
+            confidence=result["confidence"],
+            language=lang,
+            review=review_text,
+            model=predictor.model_name,
+            response_time_ms=elapsed_ms,
+            translated=(lang != "en"),
+        )
         predictions.append(BatchPrediction(
             review=review_text,
             sentiment=result["sentiment"],
@@ -109,3 +164,9 @@ async def predict_batch(request: BatchPredictRequest):
         ))
 
     return BatchPredictResponse(predictions=predictions)
+
+
+# Mount static files AFTER all routes are registered
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")

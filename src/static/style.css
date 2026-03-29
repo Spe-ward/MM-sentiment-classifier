@@ -1,0 +1,105 @@
+/* Dashboard custom styles on top of Pico CSS */
+
+/* Narrow the container for a more condensed, readable layout */
+.container {
+  max-width: 960px;
+  padding-left: 3rem;
+  padding-right: 3rem;
+}
+
+/* Status indicator dots */
+.status-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.status-ok {
+  background-color: #2ecc71;
+  box-shadow: 0 0 6px #2ecc71;
+}
+
+.status-error {
+  background-color: #e74c3c;
+  box-shadow: 0 0 6px #e74c3c;
+}
+
+.status-loading {
+  background-color: #f39c12;
+  box-shadow: 0 0 6px #f39c12;
+}
+
+/* Stats grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  text-align: center;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--pico-primary);
+}
+
+.stat-label {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  margin-top: 0.2rem;
+}
+
+/* Active model row highlight */
+.active-row {
+  background-color: rgba(46, 204, 113, 0.1);
+  font-weight: 600;
+}
+
+/* Model comparison table scrollable on small screens */
+.table-container {
+  overflow-x: auto;
+}
+
+/* Tab navigation active state */
+.tab-link.active,
+.doc-link.active {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* Documentation content styling */
+#doc-content {
+  line-height: 1.7;
+}
+
+#doc-content table {
+  width: 100%;
+  overflow-x: auto;
+  display: block;
+}
+
+#doc-content pre {
+  overflow-x: auto;
+  padding: 1rem;
+  border-radius: 6px;
+  background: var(--pico-code-background-color);
+}
+
+#doc-content code {
+  font-size: 0.9em;
+}
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: 2rem 0;
+  opacity: 0.6;
+}
