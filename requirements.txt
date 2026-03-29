@@ -1,37 +1,17 @@
-# Data & EDA
-pandas>=2.0.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
-wordcloud>=1.9.0
-
-# ML - Traditional models
-scikit-learn>=1.3.0
-lightgbm>=4.0.0
-xgboost>=2.0.0
-
-# ML - Transformer
-transformers>=4.35.0
-torch>=2.1.0
-safetensors>=0.4.0
-
-# Text preprocessing
-beautifulsoup4>=4.12.0
-nltk>=3.8.0
-
-# Translation (offline JA->EN)
-argostranslate>=1.9.0
-langdetect>=1.0.9
-
-# API
+# API runtime dependencies
 fastapi>=0.104.0
 uvicorn>=0.24.0
 pydantic>=2.5.0
 
-# Testing
-pytest>=7.4.0
-httpx>=0.25.0
-
-# Utilities
+# ML inference
+scikit-learn>=1.3.0
 joblib>=1.3.0
-tqdm>=4.66.0
-kaggle>=1.6.0
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Text preprocessing
+beautifulsoup4>=4.12.0
+
+# Translation (offline JA->EN)
+argostranslate>=1.9.0
+langdetect>=1.0.9
