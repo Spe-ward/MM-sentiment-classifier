@@ -1,0 +1,45 @@
+{
+  "model": "distilbert",
+  "accuracy": 0.9186,
+  "precision": 0.9164345403899722,
+  "recall": 0.9212,
+  "f1": 0.9188110911629762,
+  "roc_auc": 0.9754441599999999,
+  "train_time_sec": 2910.33,
+  "inference_time_sec": 38.8515,
+  "model_size_mb": 256.1,
+  "test_accuracy": 0.9218,
+  "test_precision": 0.9226452905811623,
+  "test_recall": 0.9208,
+  "test_f1": 0.9217217217217217,
+  "test_roc_auc": 0.9758896800000002,
+  "epochs": 3,
+  "batch_size": 32,
+  "max_len": 256,
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.3072096567094326,
+      "train_acc": 0.866825,
+      "val_accuracy": 0.9126,
+      "val_f1": 0.9132075471698113,
+      "val_roc_auc": 0.97268224
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.17046645197570323,
+      "train_acc": 0.937825,
+      "val_accuracy": 0.918,
+      "val_f1": 0.9172385950746871,
+      "val_roc_auc": 0.97544712
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.10659736996628344,
+      "train_acc": 0.966475,
+      "val_accuracy": 0.9186,
+      "val_f1": 0.9188110911629762,
+      "val_roc_auc": 0.9754441599999999
+    }
+  ]
+}
