@@ -1,0 +1,17 @@
+venv/
+.venv/
+.git/
+.github/
+.claude/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+notebooks/
+data/*.csv
+data/*.zip
+PLAN.md
+*.tar
+.env
+.idea/
+.vscode/
+tests/
