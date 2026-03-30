@@ -1,218 +1,187 @@
 # Model Degradation Detection & Redeployment Strategy
 
-## Overview
+## The Problem
 
-In production, model performance can degrade over time due to changes in input data distribution, evolving language patterns, or shifts in user behavior. This document outlines a strategy to detect degradation and automatically trigger retraining and redeployment.
+The deployed SVM model was trained on the IMDb 50K dataset — English-language movie reviews from a fixed point in time. In production, the model will encounter reviews that differ from this training distribution: new slang, different review styles, Japanese input (translated before prediction), or entirely different domains. Without monitoring, these shifts silently degrade prediction quality with no alert to the team.
 
----
-
-## 1. Degradation Detection
-
-### 1.1 Data Drift Monitoring
-
-Data drift occurs when the distribution of incoming data diverges from the training data.
-
-**Approach:**
-- Log all incoming review texts and their TF-IDF feature vectors
-- Periodically compare the feature distribution of recent predictions against the training set baseline
-- **Statistical tests:**
-  - **Population Stability Index (PSI)** on TF-IDF feature distributions — PSI > 0.2 indicates significant drift
-  - **Kolmogorov-Smirnov (KS) test** on individual high-importance features
-- **Text-level signals:**
-  - Average review length shifting significantly
-  - New vocabulary appearing that is out-of-vocabulary for the TF-IDF vectorizer
-  - Language distribution shift (e.g., sudden increase in JA vs EN input)
-
-### 1.2 Prediction Drift Monitoring
-
-Even without labeled data, shifts in prediction patterns can indicate problems.
-
-**Approach:**
-- Track the distribution of confidence scores over time
-- Alert if:
-  - Mean confidence drops below a threshold (e.g., < 0.7)
-  - The positive/negative prediction ratio shifts beyond expected bounds
-  - The proportion of low-confidence predictions (< 0.6) increases significantly
-
-### 1.3 Ground Truth Feedback Loop
-
-When ground truth labels become available (e.g., through user feedback or manual review):
-
-**Approach:**
-- Compute rolling accuracy, F1, and ROC-AUC on labeled samples
-- Alert if any metric drops below a threshold (e.g., F1 < 0.85)
-- Compare against the model's validation set performance as the baseline
-
-### 1.4 Latency and Throughput Anomalies
-
-Performance degradation can also manifest as infrastructure issues.
-
-**Approach:**
-- Monitor API response times (p50, p95, p99)
-- Track request throughput and error rates
-- Alert on sudden spikes in latency or error rates
+This document answers two questions:
+1. **How do we detect that the model is degrading?**
+2. **How do we automatically retrain and redeploy if it is?**
 
 ---
 
-## 2. Monitoring Implementation
+## What We Already Have
 
-### 2.1 Logging Pipeline
+The API logs every prediction to `logs/predictions.jsonl`:
 
+```json
+{
+  "timestamp": "2026-03-30T12:00:00+00:00",
+  "review": "This movie was amazing!",
+  "language_detected": "en",
+  "translated": false,
+  "sentiment": "positive",
+  "confidence": 0.9884,
+  "model": "svm",
+  "response_time_ms": 12.34
+}
 ```
-API Request → Prediction → Log to database/file
-                               ↓
-                         Async batch job (hourly/daily)
-                               ↓
-                         Compute drift metrics
-                               ↓
-                         Alert if thresholds exceeded
-```
 
-**What to log per prediction:**
-- Timestamp
-- Raw input text (or hash for privacy)
-- Detected language
-- Predicted sentiment and confidence score
-- Preprocessing and inference latency
-- Model version
-
-### 2.2 Metrics Dashboard
-
-A Prometheus + Grafana stack is recommended for real-time monitoring:
-
-| Metric | Type | Alert Threshold |
-|--------|------|-----------------|
-| `prediction_confidence_mean` | Gauge | < 0.7 |
-| `prediction_positive_ratio` | Gauge | Outside [0.3, 0.7] |
-| `data_drift_psi` | Gauge | > 0.2 |
-| `api_latency_p95` | Histogram | > 500ms |
-| `api_error_rate` | Counter | > 1% |
-| `model_accuracy_rolling` | Gauge | < 0.85 (if labels available) |
+Aggregate stats are available live at `/api/stats` and snapshotted to `logs/stats_snapshots.jsonl` every 100 predictions. This is the foundation for everything below.
 
 ---
 
-## 3. Automated Retraining Pipeline
+## Detecting Degradation
 
-### 3.1 Trigger Conditions
+### Strategy: Confidence-Based Drift Detection
 
-Retraining is triggered when any of the following conditions are met:
+We use **prediction confidence distribution** as the primary degradation signal. This works without ground truth labels, which is critical because in production we rarely get immediate feedback on whether a prediction was correct.
 
-1. **Data drift detected:** PSI > 0.2 on key features for 3 consecutive measurement windows
-2. **Performance drop:** Rolling F1 drops below 0.85 (requires labeled data)
-3. **Prediction drift:** Mean confidence below 0.7 for 24+ hours
-4. **Scheduled:** Monthly retrain regardless of drift (defensive measure)
+**How it works:**
 
-### 3.2 Retraining Pipeline
+A well-calibrated model produces high-confidence predictions on data similar to its training set. When input data drifts — new vocabulary, different sentence structures, domain shift — the model becomes less certain. This manifests as a drop in average confidence and an increase in predictions falling below a confidence threshold.
 
-```
-Trigger
-  ↓
-Collect new data (recent predictions + any available labels)
-  ↓
-Merge with original training data
-  ↓
-Preprocess (same pipeline as initial training)
-  ↓
-Train candidate model (same architecture, same hyperparameters)
-  ↓
-Evaluate on held-out validation set
-  ↓
-Compare against current production model
-  ↓
-If better → Promote to production
-If worse → Alert team, keep current model
-```
+**Implementation:**
 
-**Key principles:**
-- Never deploy a model that performs worse than the current one
-- Always evaluate on a consistent held-out set
-- Log all training runs for reproducibility
+A daily batch job reads `logs/predictions.jsonl` and computes:
 
-### 3.3 Model Versioning
+| Metric | How to compute | Alert threshold |
+|--------|---------------|-----------------|
+| **Mean confidence** | Average of `confidence` field over last 24h | < 0.75 |
+| **Low-confidence rate** | % of predictions with confidence < 0.6 | > 15% |
+| **Positive/negative ratio** | `positive_count / total` over last 24h | Outside [0.3, 0.7] |
 
-- Each model is tagged with a version (e.g., `v1.0.0`, `v1.1.0`)
-- Store all model artifacts in versioned storage (e.g., S3 with version prefixes, or MLflow Model Registry)
-- Keep at least the last 3 model versions available for rollback
+**Why these thresholds:** The deployed SVM produces mean confidence of ~0.93 on the validation set. A drop to 0.75 represents a significant shift. The positive/negative ratio on balanced review data should hover near 0.5 — a persistent skew suggests the model is systematically misclassifying one class.
+
+**What this catches:**
+- Vocabulary drift (new words the TF-IDF vectorizer hasn't seen → lower confidence)
+- Domain shift (non-movie reviews hitting the endpoint)
+- Translation quality issues (poorly translated JA input producing garbled English)
+- Data quality problems (empty reviews, spam, non-review text)
+
+**What this does not catch:**
+- Subtle accuracy loss where the model remains confident but wrong (requires labeled data)
+- Gradual drift that stays within thresholds
+
+For the second case, if a ground truth feedback mechanism is added later (e.g., users can flag incorrect predictions), rolling F1 computed against those labels replaces confidence monitoring as the primary signal, with an alert threshold of F1 < 0.85 (compared to the model's validation F1 of 0.9178).
 
 ---
 
-## 4. Deployment Strategy
+## Retraining Pipeline
 
-### 4.1 Blue/Green Deployment
+When degradation is detected, the following automated pipeline runs:
 
-1. **Blue (current):** Serving production traffic
-2. **Green (candidate):** New model deployed to a staging environment
-3. Run validation tests against the green deployment
-4. If tests pass, swap traffic from blue to green
-5. Keep blue available for instant rollback
+```
+Alert triggered (confidence drift or F1 drop)
+  │
+  ▼
+Collect data
+  │  Pull recent predictions from logs/predictions.jsonl
+  │  If labeled feedback exists, include those labels
+  │  Merge with original IMDb training data
+  │
+  ▼
+Preprocess
+  │  Apply the same clean_review() pipeline
+  │  Fit a new TF-IDF vectorizer on the combined corpus
+  │
+  ▼
+Train candidate model
+  │  Train SVM (LinearSVC) with identical hyperparameters
+  │  Same 80/10/10 split strategy on the combined dataset
+  │
+  ▼
+Evaluate
+  │  Compute F1, accuracy, ROC-AUC on held-out validation set
+  │  Compare against current production model (F1 = 0.9178)
+  │
+  ▼
+Decision gate
+  │  If candidate F1 > production F1 → promote
+  │  If candidate F1 ≤ production F1 → alert team, keep current model
+  │
+  ▼
+Deploy (if promoted)
+  │  Save new model artifacts (svm.joblib, tfidf_vectorizer.joblib)
+  │  Build new Docker image tagged with model version
+  │  Deploy via blue/green swap
+```
 
-### 4.2 Canary Deployment (Alternative)
+**Trigger conditions (any one is sufficient):**
+- Mean confidence < 0.75 for 3 consecutive daily checks
+- Low-confidence rate > 15% for 3 consecutive daily checks
+- Rolling F1 < 0.85 (if labeled data available)
+- Monthly scheduled retrain regardless of metrics (defensive)
 
-1. Route 5-10% of traffic to the new model
-2. Monitor metrics for the canary vs. the stable deployment
-3. If canary performs well over 24 hours, gradually increase to 100%
-4. If canary degrades, route all traffic back to the stable deployment
-
-### 4.3 Rollback
-
-- Automated rollback if the new model's error rate exceeds the previous model's by > 2%
-- Manual rollback available via a single command/API call
-- Rollback target: the last known-good model version
+**Safeguard:** A candidate model is never deployed if it scores lower than the current production model on the held-out set. This prevents a bad retrain from making things worse.
 
 ---
 
-## 5. Architecture Diagram
+## Redeployment Strategy: Blue/Green
 
 ```
-                    ┌─────────────────────────────┐
-                    │       Incoming Requests       │
-                    └──────────────┬──────────────┘
-                                   │
-                    ┌──────────────▼──────────────┐
-                    │      Load Balancer /         │
-                    │      API Gateway             │
-                    └──────┬───────────────┬──────┘
-                           │               │
-                   ┌───────▼──────┐ ┌──────▼───────┐
-                   │  Blue (v1.0) │ │ Green (v1.1) │
-                   │  (stable)    │ │ (candidate)  │
-                   └───────┬──────┘ └──────┬───────┘
-                           │               │
-                    ┌──────▼───────────────▼──────┐
-                    │      Prediction Logger       │
-                    └──────────────┬──────────────┘
-                                   │
-                    ┌──────────────▼──────────────┐
-                    │      Monitoring Service       │
-                    │  (drift detection, alerting) │
-                    └──────────────┬──────────────┘
-                                   │
-                           ┌───────▼───────┐
-                           │  Alert / Trigger│
-                           │  Retrain?       │
-                           └───────┬───────┘
-                                   │ Yes
-                    ┌──────────────▼──────────────┐
-                    │    Retraining Pipeline        │
-                    │  (collect → train → evaluate) │
-                    └──────────────┬──────────────┘
-                                   │
-                    ┌──────────────▼──────────────┐
-                    │   Model Registry (versioned)  │
-                    └──────────────────────────────┘
+                ┌──────────────────────┐
+                │   Load Balancer       │
+                └──────┬───────────────┘
+                       │
+            ┌──────────▼──────────┐
+            │  Traffic routing     │
+            └───┬─────────────┬───┘
+                │             │
+        ┌───────▼──────┐ ┌───▼────────┐
+        │  Blue (v1.0) │ │ Green(v1.1)│
+        │  ACTIVE      │ │ STANDBY    │
+        └──────────────┘ └────────────┘
 ```
+
+1. The current model runs in the **blue** container (active, serving all traffic)
+2. After retraining, the candidate model is deployed to the **green** container
+3. Automated validation tests run against green: health check, sample predictions, latency check
+4. If green passes validation, the load balancer swaps traffic from blue to green
+5. Blue stays running for 24 hours as a rollback target
+6. If green shows degraded metrics within 24 hours, traffic routes back to blue automatically
+
+**Rollback trigger:** If the newly deployed model's mean confidence drops below the previous model's by more than 5%, or if error rate exceeds 1%, traffic is automatically routed back to the previous version.
+
+**Versioning:** Each model is tagged (`v1.0.0`, `v1.1.0`, etc.) and stored alongside its Docker image. At least 3 previous versions are retained for rollback.
 
 ---
 
-## 6. Tools & Technologies (Recommended)
+## End-to-End Flow
 
-| Component | Tool | Notes |
-|-----------|------|-------|
-| Prediction logging | Structured JSON logs → ELK or CloudWatch | Append-only, queryable |
-| Drift detection | Custom Python job (scipy, numpy) | Runs hourly/daily via cron or Airflow |
-| Metrics | Prometheus | Exposes `/metrics` endpoint from the API |
-| Dashboards | Grafana | Visualize drift, confidence, latency |
-| Alerting | Grafana Alerts or PagerDuty | Notify on threshold breaches |
-| Model registry | MLflow or S3 versioned paths | Track experiments and artifacts |
-| Orchestration | Airflow or GitHub Actions | Trigger retraining pipeline |
-| Deployment | Docker + Kubernetes or ECS | Blue/green via service mesh or ALB |
+```
+  Predictions arrive
+        │
+        ▼
+  API serves response ──→ logs/predictions.jsonl
+        │
+        ▼
+  Dashboard (live)        Daily batch job
+  /api/stats              reads logs
+                                │
+                                ▼
+                          Compute metrics
+                          (confidence mean,
+                           low-conf rate,
+                           pos/neg ratio)
+                                │
+                          Threshold exceeded?
+                           │           │
+                          No          Yes
+                           │           │
+                        (no action)    ▼
+                                  Retrain pipeline
+                                  (collect → train → evaluate)
+                                       │
+                                  Candidate better?
+                                   │          │
+                                  No         Yes
+                                   │          │
+                              Alert team   Blue/green deploy
+                                           │
+                                       Monitor 24h
+                                       │        │
+                                    Stable    Degraded
+                                       │        │
+                                  Keep new   Rollback
+```
